@@ -163,9 +163,10 @@ public class DarkRiftTransport : ITransport
     {
         serverPeers.Clear();
         serverEventQueue.Clear();
-        server = new DarkRiftServer(new ServerSpawnData(IPAddress.Parse("127.0.0.1"), (ushort)port, IPVersion.IPv4));
+        server = new DarkRiftServer(new ServerSpawnData(IPAddress.Any, (ushort)port, IPVersion.IPv4));
         server.ClientManager.ClientConnected += Server_ClientManager_ClientConnected;
         server.ClientManager.ClientDisconnected += Server_ClientManager_ClientDisconnected;
+        server.Start();
         return true;
     }
 
