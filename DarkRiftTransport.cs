@@ -111,10 +111,26 @@ public class DarkRiftTransport : ITransport
         client = new DarkRiftClient();
         client.Disconnected += Client_Disconnected;
         client.MessageReceived += Client_MessageReceived;
-        client.Connect(IPAddress.Parse(address), port, IPVersion.IPv4);
-        clientEventQueue.Enqueue(new TransportEventData()
+        if (address.Equals("localhost"))
+            address = "127.0.0.1";
+        client.ConnectInBackground(IPAddress.Parse(address), port, IPVersion.IPv4, (exception) =>
         {
-            type = ENetworkEvent.ConnectEvent,
+            if (exception != null)
+            {
+                UnityEngine.Debug.LogException(exception);
+                clientEventQueue.Enqueue(new TransportEventData()
+                {
+                    type = ENetworkEvent.ErrorEvent,
+                    socketError = SocketError.ConnectionRefused,
+                });
+            }
+            else
+            {
+                clientEventQueue.Enqueue(new TransportEventData()
+                {
+                    type = ENetworkEvent.ConnectEvent,
+                });
+            }
         });
         return true;
     }
@@ -193,7 +209,8 @@ public class DarkRiftTransport : ITransport
 
     public void StopClient()
     {
-        client.Disconnect();
+        if (!IsServerStarted())
+            client.Disconnect();
         client.Dispose();
         client = null;
     }
