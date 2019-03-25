@@ -217,6 +217,13 @@ public class DarkRiftTransport : ITransport
         server = null;
     }
 
+    public int GetServerPeersCount()
+    {
+        if (server != null)
+            return server.ClientManager.Count;
+        return 0;
+    }
+
     public SendMode GetSendMode(DeliveryMethod deliveryMethod)
     {
         switch (deliveryMethod)
