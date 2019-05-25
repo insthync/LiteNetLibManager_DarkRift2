@@ -1,0 +1,11 @@
+{
+    "name": "DarkRift2TransportLayer",
+    "references": [
+        "LiteNetLibManagerEditor",
+        "LiteNetLibManager"
+    ],
+    "optionalUnityReferences": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false
+}
