@@ -100,7 +100,7 @@ public class DarkRiftTransport : ITransport
         return false;
     }
 
-    public bool StartClient(string connectKey, string address, int port)
+    public bool StartClient(string address, int port)
     {
         clientEventQueue.Clear();
         client = new DarkRiftClient();
@@ -154,7 +154,7 @@ public class DarkRiftTransport : ITransport
         }
     }
 
-    public bool StartServer(string connectKey, int port, int maxConnections)
+    public bool StartServer(int port, int maxConnections)
     {
         serverPeers.Clear();
         serverEventQueue.Clear();
