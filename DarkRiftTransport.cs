@@ -67,7 +67,13 @@ public class DarkRiftTransport : ITransport
     public bool ServerDisconnect(long connectionId)
     {
         if (IsServerStarted() && serverPeers.ContainsKey(connectionId))
-            return serverPeers[connectionId].Disconnect();
+        {
+            if (serverPeers[connectionId].Disconnect())
+            {
+                serverPeers.Remove(connectionId);
+                return true;
+            }
+        }
         return false;
     }
 
@@ -86,7 +92,7 @@ public class DarkRiftTransport : ITransport
 
     public bool ServerSend(long connectionId, DeliveryMethod deliveryMethod, NetDataWriter writer)
     {
-        if (IsServerStarted() && serverPeers.ContainsKey(connectionId))
+        if (IsServerStarted() && serverPeers.ContainsKey(connectionId) && serverPeers[connectionId].ConnectionState == DarkRift.ConnectionState.Connected)
         {
             using (DarkRiftWriter drWriter = DarkRiftWriter.Create(writer.Length))
             {
@@ -102,6 +108,8 @@ public class DarkRiftTransport : ITransport
 
     public bool StartClient(string address, int port)
     {
+        if (IsClientStarted())
+            return false;
         clientEventQueue.Clear();
         client = new DarkRiftClient();
         client.Disconnected += Client_Disconnected;
@@ -156,6 +164,8 @@ public class DarkRiftTransport : ITransport
 
     public bool StartServer(int port, int maxConnections)
     {
+        if (IsServerStarted())
+            return false;
         serverPeers.Clear();
         serverEventQueue.Clear();
         server = new DarkRiftServer(new ServerSpawnData(IPAddress.Any, (ushort)port, IPVersion.IPv4));
