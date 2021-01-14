@@ -10,8 +10,26 @@ using DarkRift.Client;
 
 public class DarkRiftTransport : ITransport
 {
-    public DarkRiftClient client { get; private set; }
-    public DarkRiftServer server { get; private set; }
+    public DarkRiftClient Client { get; private set; }
+    public DarkRiftServer Server { get; private set; }
+    public int ServerPeersCount
+    {
+        get
+        {
+            if (Server != null)
+                return Server.ClientManager.Count;
+            return 0;
+        }
+    }
+    public int ServerMaxConnections { get; private set; }
+    public bool IsClientStarted
+    {
+        get { return Client != null && Client.ConnectionState == DarkRift.ConnectionState.Connected; }
+    }
+    public bool IsServerStarted
+    {
+        get { return Server != null; }
+    }
     private readonly Dictionary<long, IClient> serverPeers;
     private readonly Queue<TransportEventData> clientEventQueue;
     private readonly Queue<TransportEventData> serverEventQueue;
@@ -26,7 +44,7 @@ public class DarkRiftTransport : ITransport
     public bool ClientReceive(out TransportEventData eventData)
     {
         eventData = default(TransportEventData);
-        if (client == null)
+        if (Client == null)
             return false;
         if (clientEventQueue.Count == 0)
             return false;
@@ -43,7 +61,7 @@ public class DarkRiftTransport : ITransport
             drWriter.WriteRaw(writer.Data, 0, writer.Length);
             using (Message message = Message.Create(0, drWriter))
             {
-                return client.SendMessage(message, GetSendMode(deliveryMethod));
+                return Client.SendMessage(message, GetSendMode(deliveryMethod));
             }
         }
     }
@@ -54,19 +72,9 @@ public class DarkRiftTransport : ITransport
         StopServer();
     }
 
-    public bool IsClientStarted()
-    {
-        return client != null && client.ConnectionState == DarkRift.ConnectionState.Connected;
-    }
-
-    public bool IsServerStarted()
-    {
-        return server != null;
-    }
-
     public bool ServerDisconnect(long connectionId)
     {
-        if (IsServerStarted() && serverPeers.ContainsKey(connectionId))
+        if (IsServerStarted && serverPeers.ContainsKey(connectionId))
         {
             if (serverPeers[connectionId].Disconnect())
             {
@@ -80,7 +88,7 @@ public class DarkRiftTransport : ITransport
     public bool ServerReceive(out TransportEventData eventData)
     {
         eventData = default(TransportEventData);
-        if (server == null)
+        if (Server == null)
             return false;
         if (serverEventQueue.Count == 0)
             return false;
@@ -92,7 +100,7 @@ public class DarkRiftTransport : ITransport
 
     public bool ServerSend(long connectionId, DeliveryMethod deliveryMethod, NetDataWriter writer)
     {
-        if (IsServerStarted() && serverPeers.ContainsKey(connectionId) && serverPeers[connectionId].ConnectionState == DarkRift.ConnectionState.Connected)
+        if (IsServerStarted && serverPeers.ContainsKey(connectionId) && serverPeers[connectionId].ConnectionState == DarkRift.ConnectionState.Connected)
         {
             using (DarkRiftWriter drWriter = DarkRiftWriter.Create(writer.Length))
             {
@@ -108,15 +116,15 @@ public class DarkRiftTransport : ITransport
 
     public bool StartClient(string address, int port)
     {
-        if (IsClientStarted())
+        if (IsClientStarted)
             return false;
         clientEventQueue.Clear();
-        client = new DarkRiftClient();
-        client.Disconnected += Client_Disconnected;
-        client.MessageReceived += Client_MessageReceived;
+        Client = new DarkRiftClient();
+        Client.Disconnected += Client_Disconnected;
+        Client.MessageReceived += Client_MessageReceived;
         if (address.Equals("localhost"))
             address = "127.0.0.1";
-        client.ConnectInBackground(IPAddress.Parse(address), port, IPVersion.IPv4, (exception) =>
+        Client.ConnectInBackground(IPAddress.Parse(address), port, IPVersion.IPv4, (exception) =>
         {
             if (exception != null)
             {
@@ -140,10 +148,7 @@ public class DarkRiftTransport : ITransport
 
     private void Client_Disconnected(object sender, DisconnectedEventArgs e)
     {
-        clientEventQueue.Enqueue(new TransportEventData()
-        {
-            type = ENetworkEvent.DisconnectEvent,
-        });
+        clientEventQueue.Enqueue(GetDisconnectEvent(0, e.LocalDisconnect, e.Error));
     }
 
     private void Client_MessageReceived(object sender, DarkRift.Client.MessageReceivedEventArgs e)
@@ -164,19 +169,25 @@ public class DarkRiftTransport : ITransport
 
     public bool StartServer(int port, int maxConnections)
     {
-        if (IsServerStarted())
+        if (IsServerStarted)
             return false;
+        ServerMaxConnections = maxConnections;
         serverPeers.Clear();
         serverEventQueue.Clear();
-        server = new DarkRiftServer(new ServerSpawnData(IPAddress.Any, (ushort)port, IPVersion.IPv4));
-        server.ClientManager.ClientConnected += Server_ClientManager_ClientConnected;
-        server.ClientManager.ClientDisconnected += Server_ClientManager_ClientDisconnected;
-        server.Start();
+        Server = new DarkRiftServer(new ServerSpawnData(IPAddress.Any, (ushort)port, IPVersion.IPv4));
+        Server.ClientManager.ClientConnected += Server_ClientManager_ClientConnected;
+        Server.ClientManager.ClientDisconnected += Server_ClientManager_ClientDisconnected;
+        Server.Start();
         return true;
     }
 
     private void Server_ClientManager_ClientConnected(object sender, ClientConnectedEventArgs e)
     {
+        if (ServerPeersCount >= ServerMaxConnections)
+        {
+            e.Client.Disconnect();
+            return;
+        }
         e.Client.MessageReceived += Server_ClientManager_Client_MessageReceived;
         serverPeers[e.Client.ID] = e.Client;
         serverEventQueue.Enqueue(new TransportEventData()
@@ -206,32 +217,96 @@ public class DarkRiftTransport : ITransport
     private void Server_ClientManager_ClientDisconnected(object sender, ClientDisconnectedEventArgs e)
     {
         serverPeers.Remove(e.Client.ID);
-        serverEventQueue.Enqueue(new TransportEventData()
-        {
-            type = ENetworkEvent.DisconnectEvent,
-            connectionId = e.Client.ID,
-        });
+        serverEventQueue.Enqueue(GetDisconnectEvent(e.Client.ID, e.LocalDisconnect, e.Error));
     }
 
     public void StopClient()
     {
-        if (!IsServerStarted())
-            client.Disconnect();
-        client.Dispose();
-        client = null;
+        if (Client != null)
+        {
+            Client.Disconnect();
+            Client.Dispose();
+        }
+        Client = null;
     }
 
     public void StopServer()
     {
-        server.Dispose();
-        server = null;
+        if (Server != null)
+            Server.Dispose();
+        Server = null;
     }
 
-    public int GetServerPeersCount()
+    public TransportEventData GetDisconnectEvent(ushort connectionId, bool localDisconnect, SocketError error)
     {
-        if (server != null)
-            return server.ClientManager.Count;
-        return 0;
+        TransportEventData result = new TransportEventData()
+        {
+            type = ENetworkEvent.DisconnectEvent,
+            connectionId = connectionId,
+        };
+        if (localDisconnect)
+        {
+            result.disconnectInfo = new DisconnectInfo()
+            {
+                Reason = DisconnectReason.DisconnectPeerCalled,
+                SocketErrorCode = error,
+            };
+        }
+        else
+        {
+            switch (error)
+            {
+                case SocketError.ConnectionReset:
+                    result.disconnectInfo = new DisconnectInfo()
+                    {
+                        Reason = DisconnectReason.ConnectionFailed,
+                        SocketErrorCode = error,
+                    };
+                    break;
+                case SocketError.TimedOut:
+                    result.disconnectInfo = new DisconnectInfo()
+                    {
+                        Reason = DisconnectReason.Timeout,
+                        SocketErrorCode = error,
+                    };
+                    break;
+                case SocketError.HostUnreachable:
+                    result.disconnectInfo = new DisconnectInfo()
+                    {
+                        Reason = DisconnectReason.HostUnreachable,
+                        SocketErrorCode = error,
+                    };
+                    break;
+                case SocketError.NetworkUnreachable:
+                    result.disconnectInfo = new DisconnectInfo()
+                    {
+                        Reason = DisconnectReason.NetworkUnreachable,
+                        SocketErrorCode = error,
+                    };
+                    break;
+                case SocketError.ConnectionAborted:
+                    result.disconnectInfo = new DisconnectInfo()
+                    {
+                        Reason = DisconnectReason.RemoteConnectionClose,
+                        SocketErrorCode = error,
+                    };
+                    break;
+                case SocketError.ConnectionRefused:
+                    result.disconnectInfo = new DisconnectInfo()
+                    {
+                        Reason = DisconnectReason.ConnectionRejected,
+                        SocketErrorCode = error,
+                    };
+                    break;
+                default:
+                    result.disconnectInfo = new DisconnectInfo()
+                    {
+                        SocketErrorCode = error,
+                    };
+                    break;
+            }
+        }
+        return result;
     }
 
     public SendMode GetSendMode(DeliveryMethod deliveryMethod)
