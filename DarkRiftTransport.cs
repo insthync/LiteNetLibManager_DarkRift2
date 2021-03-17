@@ -54,7 +54,7 @@ public class DarkRiftTransport : ITransport
         return true;
     }
 
-    public bool ClientSend(DeliveryMethod deliveryMethod, NetDataWriter writer)
+    public bool ClientSend(byte dataChannel, DeliveryMethod deliveryMethod, NetDataWriter writer)
     {
         using (DarkRiftWriter drWriter = DarkRiftWriter.Create(writer.Length))
         {
@@ -98,7 +98,7 @@ public class DarkRiftTransport : ITransport
         return true;
     }
 
-    public bool ServerSend(long connectionId, DeliveryMethod deliveryMethod, NetDataWriter writer)
+    public bool ServerSend(long connectionId, byte dataChannel, DeliveryMethod deliveryMethod, NetDataWriter writer)
     {
         if (IsServerStarted && serverPeers.ContainsKey(connectionId) && serverPeers[connectionId].ConnectionState == DarkRift.ConnectionState.Connected)
         {
