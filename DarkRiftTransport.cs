@@ -49,8 +49,6 @@ public class DarkRiftTransport : ITransport
         if (clientEventQueue.Count == 0)
             return false;
         eventData = clientEventQueue.Dequeue();
-        if (eventData.type == ENetworkEvent.DataEvent && eventData.reader == null)
-            return false;
         return true;
     }
 
