@@ -52,11 +52,11 @@ public class DarkRiftTransport : ITransport
         return true;
     }
 
-    public bool ClientSend(byte dataChannel, DeliveryMethod deliveryMethod, byte[] data)
+    public bool ClientSend(byte dataChannel, DeliveryMethod deliveryMethod, NetDataWriter writer)
     {
-        using (DarkRiftWriter drWriter = DarkRiftWriter.Create(data.Length))
+        using (DarkRiftWriter drWriter = DarkRiftWriter.Create(writer.Length))
         {
-            drWriter.WriteRaw(data, 0, data.Length);
+            drWriter.WriteRaw(writer.Data, 0, writer.Length);
             using (Message message = Message.Create(0, drWriter))
             {
                 return Client.SendMessage(message, GetSendMode(deliveryMethod));
@@ -96,13 +96,13 @@ public class DarkRiftTransport : ITransport
         return true;
     }
 
-    public bool ServerSend(long connectionId, byte dataChannel, DeliveryMethod deliveryMethod, byte[] data)
+    public bool ServerSend(long connectionId, byte dataChannel, DeliveryMethod deliveryMethod, NetDataWriter writer)
     {
         if (IsServerStarted && serverPeers.ContainsKey(connectionId) && serverPeers[connectionId].ConnectionState == DarkRift.ConnectionState.Connected)
         {
-            using (DarkRiftWriter drWriter = DarkRiftWriter.Create(data.Length))
+            using (DarkRiftWriter drWriter = DarkRiftWriter.Create(writer.Length))
             {
-                drWriter.WriteRaw(data, 0, data.Length);
+                drWriter.WriteRaw(writer.Data, 0, writer.Length);
                 using (Message message = Message.Create(0, drWriter))
                 {
                     return serverPeers[connectionId].SendMessage(message, GetSendMode(deliveryMethod));
