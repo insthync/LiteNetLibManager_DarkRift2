@@ -10,6 +10,11 @@ using DarkRift.Client;
 
 public class DarkRiftTransport : ITransport
 {
+
+    private readonly Dictionary<long, IClient> _serverPeers;
+    private readonly Queue<TransportEventData> _clientEventQueue;
+    private readonly Queue<TransportEventData> _serverEventQueue;
+
     public DarkRiftClient Client { get; private set; }
     public DarkRiftServer Server { get; private set; }
     public int ServerPeersCount
@@ -30,15 +35,17 @@ public class DarkRiftTransport : ITransport
     {
         get { return Server != null; }
     }
-    private readonly Dictionary<long, IClient> serverPeers;
-    private readonly Queue<TransportEventData> clientEventQueue;
-    private readonly Queue<TransportEventData> serverEventQueue;
+
+    public bool HasImplementedPing
+    {
+        get { return false; }
+    }
 
     public DarkRiftTransport()
     {
-        serverPeers = new Dictionary<long, IClient>();
-        clientEventQueue = new Queue<TransportEventData>();
-        serverEventQueue = new Queue<TransportEventData>();
+        _serverPeers = new Dictionary<long, IClient>();
+        _clientEventQueue = new Queue<TransportEventData>();
+        _serverEventQueue = new Queue<TransportEventData>();
     }
 
     public bool ClientReceive(out TransportEventData eventData)
@@ -46,9 +53,9 @@ public class DarkRiftTransport : ITransport
         eventData = default(TransportEventData);
         if (Client == null)
             return false;
-        if (clientEventQueue.Count == 0)
+        if (_clientEventQueue.Count == 0)
             return false;
-        eventData = clientEventQueue.Dequeue();
+        eventData = _clientEventQueue.Dequeue();
         return true;
     }
 
@@ -72,11 +79,11 @@ public class DarkRiftTransport : ITransport
 
     public bool ServerDisconnect(long connectionId)
     {
-        if (IsServerStarted && serverPeers.ContainsKey(connectionId))
+        if (IsServerStarted && _serverPeers.ContainsKey(connectionId))
         {
-            if (serverPeers[connectionId].Disconnect())
+            if (_serverPeers[connectionId].Disconnect())
             {
-                serverPeers.Remove(connectionId);
+                _serverPeers.Remove(connectionId);
                 return true;
             }
         }
@@ -88,9 +95,9 @@ public class DarkRiftTransport : ITransport
         eventData = default(TransportEventData);
         if (Server == null)
             return false;
-        if (serverEventQueue.Count == 0)
+        if (_serverEventQueue.Count == 0)
             return false;
-        eventData = serverEventQueue.Dequeue();
+        eventData = _serverEventQueue.Dequeue();
         if (eventData.type == ENetworkEvent.DataEvent && eventData.reader == null)
             return false;
         return true;
@@ -98,14 +105,14 @@ public class DarkRiftTransport : ITransport
 
     public bool ServerSend(long connectionId, byte dataChannel, DeliveryMethod deliveryMethod, NetDataWriter writer)
     {
-        if (IsServerStarted && serverPeers.ContainsKey(connectionId) && serverPeers[connectionId].ConnectionState == DarkRift.ConnectionState.Connected)
+        if (IsServerStarted && _serverPeers.ContainsKey(connectionId) && _serverPeers[connectionId].ConnectionState == DarkRift.ConnectionState.Connected)
         {
             using (DarkRiftWriter drWriter = DarkRiftWriter.Create(writer.Length))
             {
                 drWriter.WriteRaw(writer.Data, 0, writer.Length);
                 using (Message message = Message.Create(0, drWriter))
                 {
-                    return serverPeers[connectionId].SendMessage(message, GetSendMode(deliveryMethod));
+                    return _serverPeers[connectionId].SendMessage(message, GetSendMode(deliveryMethod));
                 }
             }
         }
@@ -116,7 +123,7 @@ public class DarkRiftTransport : ITransport
     {
         if (IsClientStarted)
             return false;
-        clientEventQueue.Clear();
+        _clientEventQueue.Clear();
         Client = new DarkRiftClient();
         Client.Disconnected += Client_Disconnected;
         Client.MessageReceived += Client_MessageReceived;
@@ -127,7 +134,7 @@ public class DarkRiftTransport : ITransport
             if (exception != null)
             {
                 UnityEngine.Debug.LogException(exception);
-                clientEventQueue.Enqueue(new TransportEventData()
+                _clientEventQueue.Enqueue(new TransportEventData()
                 {
                     type = ENetworkEvent.ErrorEvent,
                     socketError = SocketError.ConnectionRefused,
@@ -135,7 +142,7 @@ public class DarkRiftTransport : ITransport
             }
             else
             {
-                clientEventQueue.Enqueue(new TransportEventData()
+                _clientEventQueue.Enqueue(new TransportEventData()
                 {
                     type = ENetworkEvent.ConnectEvent,
                 });
@@ -146,7 +153,7 @@ public class DarkRiftTransport : ITransport
 
     private void Client_Disconnected(object sender, DisconnectedEventArgs e)
     {
-        clientEventQueue.Enqueue(GetDisconnectEvent(0, e.LocalDisconnect, e.Error));
+        _clientEventQueue.Enqueue(GetDisconnectEvent(0, e.LocalDisconnect, e.Error));
     }
 
     private void Client_MessageReceived(object sender, DarkRift.Client.MessageReceivedEventArgs e)
@@ -156,7 +163,7 @@ public class DarkRiftTransport : ITransport
         {
             using (DarkRiftReader reader = message.GetReader())
             {
-                clientEventQueue.Enqueue(new TransportEventData()
+                _clientEventQueue.Enqueue(new TransportEventData()
                 {
                     type = ENetworkEvent.DataEvent,
                     reader = new NetDataReader(reader.ReadRaw(reader.Length)),
@@ -170,8 +177,8 @@ public class DarkRiftTransport : ITransport
         if (IsServerStarted)
             return false;
         ServerMaxConnections = maxConnections;
-        serverPeers.Clear();
-        serverEventQueue.Clear();
+        _serverPeers.Clear();
+        _serverEventQueue.Clear();
         Server = new DarkRiftServer(new ServerSpawnData(IPAddress.Any, (ushort)port, IPVersion.IPv4));
         Server.ClientManager.ClientConnected += Server_ClientManager_ClientConnected;
         Server.ClientManager.ClientDisconnected += Server_ClientManager_ClientDisconnected;
@@ -187,8 +194,8 @@ public class DarkRiftTransport : ITransport
             return;
         }
         e.Client.MessageReceived += Server_ClientManager_Client_MessageReceived;
-        serverPeers[e.Client.ID] = e.Client;
-        serverEventQueue.Enqueue(new TransportEventData()
+        _serverPeers[e.Client.ID] = e.Client;
+        _serverEventQueue.Enqueue(new TransportEventData()
         {
             type = ENetworkEvent.ConnectEvent,
             connectionId = e.Client.ID,
@@ -202,7 +209,7 @@ public class DarkRiftTransport : ITransport
         {
             using (DarkRiftReader reader = message.GetReader())
             {
-                serverEventQueue.Enqueue(new TransportEventData()
+                _serverEventQueue.Enqueue(new TransportEventData()
                 {
                     type = ENetworkEvent.DataEvent,
                     connectionId = e.Client.ID,
@@ -214,8 +221,8 @@ public class DarkRiftTransport : ITransport
 
     private void Server_ClientManager_ClientDisconnected(object sender, ClientDisconnectedEventArgs e)
     {
-        serverPeers.Remove(e.Client.ID);
-        serverEventQueue.Enqueue(GetDisconnectEvent(e.Client.ID, e.LocalDisconnect, e.Error));
+        _serverPeers.Remove(e.Client.ID);
+        _serverEventQueue.Enqueue(GetDisconnectEvent(e.Client.ID, e.LocalDisconnect, e.Error));
     }
 
     public void StopClient()
@@ -319,5 +326,15 @@ public class DarkRiftTransport : ITransport
             default:
                 return SendMode.Unreliable;
         }
+    }
+
+    public long GetClientRtt()
+    {
+        throw new System.NotImplementedException();
+    }
+
+    public long GetServerRtt(long connectionId)
+    {
+        throw new System.NotImplementedException();
     }
 }
